@@ -41,12 +41,17 @@ parser.add_argument('--output_stride', type=int, default=16,
                     choices=[8, 16],
                     help='Output stride for DeepLab v3. Currently 8 or 16 is supported.')
 
-_NUM_CLASSES = 21
-
+_NUM_CLASSES = 54
+_CLASS_BIAS = 2
+_GET_SOFTMAX = True
+PATH_TO_SOFTMAX = '/media/airscan/Disk3/MS_COCO/deeplab_test/segmentations/softmax'
+_IMAGES_PER_NPZ = 100
 
 def main(unused_argv):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
+  os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+  os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
   examples = dataset_util.read_examples_list(FLAGS.evaluation_data_list)
   image_files = [os.path.join(FLAGS.image_data_dir, filename) + '.jpg' for filename in examples]
@@ -78,6 +83,10 @@ def main(unused_argv):
     step = 1
     sum_cm = np.zeros((_NUM_CLASSES, _NUM_CLASSES), dtype=np.int32)
     start = timeit.default_timer()
+    # initial
+    i = 0
+    probs = np.zeros([_IMAGES_PER_NPZ,700,700,54]) # array to store probabilities per image
+    shapes = np.zeros([_IMAGES_PER_NPZ,3])
     while True:
       try:
         preds = sess.run(predictions)
@@ -87,6 +96,23 @@ def main(unused_argv):
           tf.logging.info("current step = {} ({:.3f} sec)".format(step, stop-start))
           start = timeit.default_timer()
         step += 1
+        # create the list for probabilities
+        sm = np.squeeze(preds['probabilities'].copy()) # softmax
+        idx = i % _IMAGES_PER_NPZ # resets at next
+        probs[idx,:sm.shape[0],:sm.shape[1],:] = sm
+        shapes[idx] = sm.shape
+
+        if (i+1) % _IMAGES_PER_NPZ == 0:
+            print('MAX',np.max(probs))
+            npz_count = (i+1) //_IMAGES_PER_NPZ
+            filename = os.path.join(PATH_TO_SOFTMAX,'softmax_{}'.format(npz_count))
+            np.savez(filename,probs=probs,shapes=shapes)
+            probs = np.zeros([_IMAGES_PER_NPZ,700,700,54]) # array to store probabilities per image
+            shapes = np.zeros([_IMAGES_PER_NPZ,3])
+            print('softmax_file_{}.npz saved...'.format(npz_count))
+        i += 1
+        print(i,end='\r')
+
       except tf.errors.OutOfRangeError:
         break
 

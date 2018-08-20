@@ -173,7 +173,7 @@ def deeplabv3_plus_model_fn(features, labels, mode, params):
 
   pred_classes = tf.expand_dims(tf.argmax(logits, axis=3, output_type=tf.int32), axis=3)
 
-  pred_decoded_labels = tf.py_func(preprocessing.decode_labels,
+  pred_decoded_labels = tf.py_func(preprocessing.decode_labels_pan,
                                    [pred_classes, params['batch_size'], params['num_classes']],
                                    tf.uint8)
 
@@ -196,7 +196,7 @@ def deeplabv3_plus_model_fn(features, labels, mode, params):
                 predictions_without_decoded_labels)
         })
 
-  gt_decoded_labels = tf.py_func(preprocessing.decode_labels,
+  gt_decoded_labels = tf.py_func(preprocessing.decode_labels_pan,
                                  [labels, params['batch_size'], params['num_classes']], tf.uint8)
 
   labels = tf.squeeze(labels, axis=3)  # reduce the channel dimension.
@@ -256,7 +256,7 @@ def deeplabv3_plus_model_fn(features, labels, mode, params):
       learning_rate = tf.train.polynomial_decay(
           params['initial_learning_rate'],
           tf.cast(global_step, tf.int32) - params['initial_global_step'],
-          params['max_iter'], params['end_learning_rate'], power=params['power'])
+          params['max_iter'], params['end_learning_rate'], power=params['power'],cycle=True)
     else:
       raise ValueError('Learning rate policy must be "piecewise" or "poly"')
 

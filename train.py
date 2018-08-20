@@ -15,6 +15,9 @@ from tensorflow.python import debug as tf_debug
 
 import shutil
 
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--model_dir', type=str, default='./model',
@@ -80,7 +83,7 @@ parser.add_argument('--weight_decay', type=float, default=2e-4,
 parser.add_argument('--debug', action='store_true',
                     help='Whether to use debugger to track down bad values during training.')
 
-_NUM_CLASSES = 21
+_NUM_CLASSES = 54
 _HEIGHT = 513
 _WIDTH = 513
 _DEPTH = 3
@@ -94,8 +97,8 @@ _MOMENTUM = 0.9
 _BATCH_NORM_DECAY = 0.9997
 
 _NUM_IMAGES = {
-    'train': 10582,
-    'validation': 1449,
+    'train': 118286,
+    'validation': 5000,
 }
 
 

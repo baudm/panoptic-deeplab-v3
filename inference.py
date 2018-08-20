@@ -13,9 +13,13 @@ import tensorflow as tf
 import deeplab_model
 from utils import preprocessing
 from utils import dataset_util
+from mapping import Maps as mapLU
 
 from PIL import Image
 import matplotlib.pyplot as plt
+import numpy as np
+import skimage.io as sio
+import skimage.color as sco
 
 from tensorflow.python import debug as tf_debug
 
@@ -46,12 +50,17 @@ parser.add_argument('--output_stride', type=int, default=16,
 parser.add_argument('--debug', action='store_true',
                     help='Whether to use debugger to track down bad values during training.')
 
-_NUM_CLASSES = 21
+_NUM_CLASSES = 54
+STUFF_CLEANING = False
 
+#create the object to call the maps
+cat_map = mapLU()
 
 def main(unused_argv):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
+  os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+  os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
   pred_hooks = None
   if FLAGS.debug:
@@ -81,18 +90,70 @@ def main(unused_argv):
   if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
+
+  gt_path = '/media/airscan/Disk3/MS_COCO/segmentations2'
   for pred_dict, image_path in zip(predictions, image_files):
     image_basename = os.path.splitext(os.path.basename(image_path))[0]
     output_filename = image_basename + '_mask.png'
-    path_to_output = os.path.join(output_dir, output_filename)
+    output_filename2 = image_basename + '.png' #needed filename for evaluation of panoptic
+    gt_filename = os.path.join(gt_path,image_basename+'.png')
 
-    print("generating:", path_to_output)
-    mask = pred_dict['decoded_labels']
-    mask = Image.fromarray(mask)
-    plt.axis('off')
-    plt.imshow(mask)
-    plt.savefig(path_to_output, bbox_inches='tight')
+    # create 3 output folders (1) colored (2) stuff classes (3) 2-ch output
+    output_dir_colored = os.path.join(output_dir,'colored')
+    output_dir_segmask = os.path.join(output_dir,'masks')
+    output_dir_ch2mask = os.path.join(output_dir,'ch2_outputs')
 
+    path_to_output_colored = os.path.join(output_dir_colored, output_filename)
+    path_to_output_segmask = os.path.join(output_dir_segmask, output_filename2)
+    path_to_output_ch2mask = os.path.join(output_dir_ch2mask, output_filename2)
+
+    print("generating:", image_basename + ' segmentations')
+
+    if not STUFF_CLEANING:
+        mask = pred_dict['decoded_labels'] # output is the colormap segmentation
+        mask = Image.fromarray(mask.astype(np.uint8))
+        mask.save(path_to_output_colored)
+
+    # returns the panoptic classes
+    segmask1 = pred_dict['classes']
+    segmask1 = np.squeeze(segmask1)
+    segmask1 = np.vectorize(cat_map.stuff_category_rev.get)(segmask1)
+
+    # load the preprocessing by the confusion matrix here
+    conf_mat = np.load('conf-matrix.npz')['cm']
+
+    # with confusion matrix
+    segmask_prob = pred_dict['probabilities']
+    segmask_new_prob = np.dot(segmask_prob,conf_mat)
+    segmask = np.argmax(segmask_new_prob,axis=-1)
+    segmask = np.vectorize(cat_map.stuff_category_rev.get)(segmask)
+
+    # for direct output of deeplab
+
+    segmask1_PIL = Image.fromarray(segmask1.astype(np.uint8))
+    segmask1_PIL.save(path_to_output_segmask)
+
+    if not STUFF_CLEANING: #used only for creating panoptic outputs
+        ch2mask = np.zeros((*segmask.shape,3))
+        ch2mask[:,:,0] = segmask
+        ch2mask = Image.fromarray(ch2mask.astype(np.uint8))
+        ch2mask.save(path_to_output_ch2mask)
+
+    """
+    # horz cat for visual comparison
+    input = sio.imread(image_path)
+    gt = sio.imread(gt_filename)
+    gt = sco.gray2rgb(gt)
+    segmask = sco.gray2rgb(segmask)
+    segmask1 = sco.gray2rgb(segmask1)
+
+    comb1 = np.hstack([input,gt])
+    comb2 = np.hstack([segmask1,segmask])
+    comb2 = np.vectorize(cat_map.stuff_category_mapping.get)(comb2)
+    comb = np.vstack([comb1,comb2])
+    comb_PIL = Image.fromarray(comb.astype(np.uint8))
+    comb_PIL.save(os.path.join(output_dir,'compare',output_filename))
+    """
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
